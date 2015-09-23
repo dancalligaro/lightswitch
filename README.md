@@ -1,0 +1,2 @@
+# lightswitch
+webcam interaction tests
