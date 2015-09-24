@@ -1,2 +1,3 @@
 # lightswitch
-webcam interaction tests
+
+See the live example here: [http://dancalligaro.github.io/lightswitch/](http://dancalligaro.github.io/lightswitch/)
