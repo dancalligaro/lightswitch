@@ -1,0 +1,241 @@
+<!doctype html>
+
+<html>
+<head>
+  <title>onoff</title>
+
+  <style>
+  body{
+    font-family: "Arial", sans-serif;
+  }
+  .indicator {
+    display: none;
+    font-size: 25px;
+    text-align: center;
+    border: solid 3px black;
+    padding: 10px 0;
+    width: 150px;
+  }
+  .on .indicatorOn{
+    display: block;
+    background: red;
+  }
+  .off .indicatorOff{
+    display: block;
+    background: green;
+  }
+  video{
+    display: none;
+  }
+  video.showVideo{
+    display: block;
+  }
+  #processingCanvas {
+    display: none;
+    -webkit-transform: scale(10,10);
+    position: relative;
+    top: 240px;
+    left: 200px;
+  }
+  .debug-ctl{
+    display: none;
+    position: absolute;
+    background-color: #eee;
+    padding: 10px;
+  }
+  .lights{
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: black;
+  }
+  .lights-on, 
+  .lights-off{
+    display: none;
+    height: 100%;
+    margin: 0 auto;
+  }
+  .lights-on{
+    background: url('img-on.jpg') center center no-repeat ;
+    background-size: contain;
+  }
+  .lights-off{
+    background: url('img-off.jpg') center center no-repeat;
+    background-size: contain;
+  }
+  </style>
+
+  <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+
+</head>
+<body>
+
+  <div class="lights">
+    <div id="lightsOn" class="lights-on"></div>
+    <div id="lightsOff" class="lights-off"></div>
+  </div>
+
+  <div id="debugControls" class="debug-ctl">
+    
+    <div>
+      Level: <span id="currentvalue">0</span>
+    </div>
+
+    <div>
+      Threshold: <input type="text" id="threshold" value="0.4" />
+      <input type="range" id="thresRange" name="thresRange" min="0" max="100">
+    </div>
+
+    <div id="indicators">
+      <div class="indicator indicatorOn">ON</div>
+      <div class="indicator indicatorOff">OFF</div>
+    </div>
+  </div>
+
+  <video id='videoEl' width="320" height="240" autoplay ></video>
+  <canvas id="processingCanvas" width="40" height="40"></canvas><!-- this canvas is where the video image is processed --> 
+
+<script>
+
+  window.requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame;
+
+  var video = document.querySelector('video');
+  var canvas = document.getElementById('processingCanvas');
+  var ctx = canvas.getContext('2d');
+  var localMediaStream = null;
+
+  var SAMPLE_SIZE = 40;
+
+  var thresholdEl = document.getElementById('threshold');
+  var threshold = parseFloat(thresholdEl.value,10);
+
+  var indicators = document.getElementById('indicators');
+  var currentvalue = document.getElementById('currentvalue');
+  var thresRange = document.getElementById('thresRange');
+
+  thresRange.value = threshold * 100;
+  
+  thresRange.onchange = function(){
+    threshold = this.value/100;
+    thresholdEl.value = threshold;
+  }
+
+  function thresholdChange(){
+    threshold = parseInt(thresholdEl.value,10);
+    thresRange.value = threshold * 100;
+  }
+
+
+  var lastValue = null;
+  var minSlope = 0, maxSlope = 0;
+  var lastEventFiredTime = 0;
+  var slopeDebounce = 800;//Milliseconds to avoid triggering events during the camera's brightness adjustment
+  var skipframes = 50;
+  var printdelay  = 1;
+
+  var darkPxLevelEl = document.getElementById('darkPxLevel');
+
+  var lightsOn = document.getElementById('lightsOn')
+  var lightsOff = document.getElementById('lightsOff')
+
+  function snapshot() {
+    var pixels;
+    var i,j,k;
+    var level = 0, Y = 0;
+    var frameMax, frameMin;
+    var y, yMin=1000, yMax=0;
+    var countWhite = 0 , countBlack=0;
+    var histogram  = [], histoGramIx;
+    var ttt = 0;
+    var histoLevel;
+    var maxHisto = 1;
+    var topLight = 0;
+    var bottomLight = 0;
+
+    if (localMediaStream) {
+      ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+      
+      pixels = ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
+
+      for(i=0;i< (SAMPLE_SIZE * SAMPLE_SIZE) * 4;i+=4){
+          level += pixels[i+0] + pixels[i+1] + pixels[i+2];
+          y = pixels[i+3] = 0.2126 * pixels[i+0] + 0.7152 * pixels[i+1] + 0.0722 * pixels[i+2];
+          yMin = yMin < y ? yMin : y;
+          yMax = yMax > y ? yMax : y;
+          Y+= y;
+      }
+ 
+      level = level/256/3/SAMPLE_SIZE/SAMPLE_SIZE;
+
+      currentvalue.innerHTML = Math.round(level*1000)/1000 + " | " + Y;
+
+      indicators.className = level>threshold ? "on" : "off";
+
+      if(level>threshold){
+        lightsOn.style.display = "block"
+        lightsOff.style.display = "none"
+      }else{
+        lightsOn.style.display = "none"
+        lightsOff.style.display = "block"
+      }
+
+      var thisValue = {
+          time: +new Date(),
+          level: level
+      };        
+
+      if(lastValue !== null){
+        var deltaLevel = lastValue.level - thisValue.level, 
+          deltaTime = lastValue.time - thisValue.time,
+          slope = deltaLevel/deltaTime;
+          minSlope = Math.min(minSlope, slope);
+          maxSlope = Math.max(maxSlope, slope);
+      }
+
+      lastValue = thisValue;
+      
+    }
+
+
+    requestAnimationFrame(snapshot);
+
+  }
+
+
+  function errorCallback(e) {
+    console.log('Reeeejected!', e);
+  };
+
+
+  navigator.getMedia = ( navigator.getUserMedia ||
+                       navigator.webkitGetUserMedia ||
+                       navigator.mozGetUserMedia ||
+                       navigator.msGetUserMedia);
+
+  // Not showing vendor prefixes or code that works cross-browser.
+  navigator.getMedia({video: true}, function(stream) {
+    if (video.mozSrcObject !== undefined) {
+      
+        video.mozSrcObject = stream;
+        video.play()
+        setTimeout(function(){
+          requestAnimationFrame(snapshot);  
+        },2000)
+    } else {
+        //video.src = (window.URL && window.URL.createObjectURL(stream)) || stream;
+      video.src = window.URL.createObjectURL(stream);
+      requestAnimationFrame(snapshot);  
+    };
+    localMediaStream = stream;
+  }, errorCallback);
+
+
+  window.showDebugControls = function(){
+    document.getElementById("debugControls").style.display = "block"
+  }
+
+</script>
+</body>
+</html>
